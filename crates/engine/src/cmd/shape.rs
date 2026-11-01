@@ -161,7 +161,7 @@ pub fn specs() -> Vec<CommandSpec> {
             "Crop Mode",
             ["Picture Format", "Size"],
             None,
-            "{on?: bool (default: toggle), id?} — enter or leave crop mode for one picture: drag its crop handles (pointer gestures, hits `cropHandle`) to crop or uncrop a side, drag the picture (`cropImage`) to move the image inside its frame; Esc, Enter or a press elsewhere ends it, keeping the crop",
+            "{on?: bool (default: toggle), id?} — enter or leave crop mode for one picture: drag its crop handles (pointer gestures, hits `cropHandle`) to crop or uncrop a side, drag inside the frame (`cropFrame`) to move the kept area over the image, or the cropped-away image around it (`cropImage`) to move the image under the frame; Esc, Enter or a press elsewhere ends it, keeping the crop",
             has_selection,
             crop_mode
         ),

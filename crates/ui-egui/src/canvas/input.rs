@@ -144,7 +144,7 @@ pub(super) fn pointer(app: &mut SlideApp, ui: &Ui, resp: &egui::Response, xf: Xf
             (ToolKind::TextBox, _) => egui::CursorIcon::Text,
             (ToolKind::Ink { .. }, _) => egui::CursorIcon::Crosshair,
             (_, Some(Hit::Resize { id, handle } | Hit::CropHandle { id, handle })) => resize_cursor(&app.session, *id, *handle),
-            (_, Some(Hit::CropImage { .. })) => egui::CursorIcon::Move,
+            (_, Some(Hit::CropFrame { .. } | Hit::CropImage { .. })) => egui::CursorIcon::Move,
             (_, Some(Hit::Rotate { .. })) => egui::CursorIcon::Alias,
             (_, Some(Hit::TableColumn { .. })) => egui::CursorIcon::ResizeColumn,
             (_, Some(Hit::TableRow { .. })) => egui::CursorIcon::ResizeRow,

@@ -144,8 +144,13 @@ pub enum Hit {
         id: ShapeId,
         handle: u8,
     },
-    /// The picture in crop mode, its frame or the cropped-away image around it: dragging moves
-    /// the image under the frame.
+    /// Inside the frame of the picture in crop mode: dragging moves the frame (the kept area)
+    /// over the image, which stays put.
+    CropFrame {
+        id: ShapeId,
+    },
+    /// The cropped-away image around the frame of the picture in crop mode: dragging moves the
+    /// image under the frame.
     CropImage {
         id: ShapeId,
     },
@@ -207,6 +212,13 @@ enum Drag {
     CropEdge {
         id: ShapeId,
         handle: u8,
+        orig: Xfrm,
+        crop: [f64; 4],
+        start: Point,
+    },
+    /// Crop mode: moving the frame over the image.
+    CropMove {
+        id: ShapeId,
         orig: Xfrm,
         crop: [f64; 4],
         start: Point,

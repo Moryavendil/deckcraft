@@ -122,7 +122,8 @@ impl Session {
                     self.set_picture_crop(id, Some(x), c)?;
                 }
             }
-            Drag::CropPan { id, orig, crop, start } => {
+            Drag::CropMove { id, orig, crop, start } | Drag::CropPan { id, orig, crop, start } => {
+                let frame = matches!(drag, Drag::CropMove { .. });
                 let inv = orig.affine().inverse();
                 let mut d = inv * p - inv * start;
                 // Shift keeps the move horizontal or vertical, as for shapes.
@@ -133,7 +134,11 @@ impl Session {
                         d.x = 0.0;
                     }
                 }
-                if let Some(c) = super::crop::pan(orig.w, orig.h, crop, d, tol * 1.5) {
+                if frame {
+                    if let Some((x, c)) = super::crop::move_frame(&orig, crop, d, tol * 1.5) {
+                        self.set_picture_crop(id, Some(x), c)?;
+                    }
+                } else if let Some(c) = super::crop::pan(orig.w, orig.h, crop, d, tol * 1.5) {
                     self.set_picture_crop(id, None, c)?;
                 }
             }

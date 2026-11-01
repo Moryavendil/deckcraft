@@ -117,6 +117,20 @@ pub fn pan(w: f64, h: f64, crop: [f64; 4], d: Vec2, snap: f64) -> Option<[f64; 4
     crop_of(Rect::new(0.0, 0.0, w, h), moved)
 }
 
+/// Move the frame (the kept area) of a picture whose box was `orig` and crop `crop` by `d` in the
+/// picture's own coordinates, over an image that stays where it is on the slide. A frame edge
+/// snaps to the image's edge within `snap` points. Returns the new box and crop.
+pub fn move_frame(orig: &Xfrm, crop: [f64; 4], d: Vec2, snap: f64) -> Option<(Xfrm, [f64; 4])> {
+    // Seen from the frame, the image moves the other way: reuse [`pan`]'s snapping and limits.
+    let c = pan(orig.w, orig.h, crop, -d, snap)?;
+    let (before, after) = (image_rect(orig.w, orig.h, crop), image_rect(orig.w, orig.h, c));
+    let shift = Vec2::new(before.x0 - after.x0, before.y0 - after.y0);
+    // The new box keeps its size, rotation and flips, centred where the moved frame's centre lands.
+    let centre = orig.affine() * Point::new(orig.w / 2.0 + shift.x, orig.h / 2.0 + shift.y);
+    let x = Xfrm { x: centre.x - orig.w / 2.0, y: centre.y - orig.h / 2.0, ..*orig };
+    (x.x.is_finite() && x.y.is_finite()).then_some((x, c))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -189,5 +203,25 @@ mod tests {
         let c = pan(100.0, 100.0, crop, Vec2::new(1e6, 0.0), 0.0).unwrap_or_default();
         assert!(c.iter().all(|v| (MIN_CROP - 1e-9..=MAX_CROP + 1e-9).contains(v)), "{c:?}");
         assert!(pan(100.0, 100.0, crop, Vec2::new(f64::INFINITY, 0.0), 0.0).is_none());
+    }
+
+    #[test]
+    fn moving_the_frame_keeps_the_image_in_place_on_the_slide() {
+        // A 100 pt frame at x = 100 showing the middle half of a 200 pt image (image at x = 50).
+        let o = Xfrm::new(100.0, 0.0, 100.0, 100.0);
+        let crop = [0.25, 0.0, 0.25, 0.0];
+        let (x, c) = move_frame(&o, crop, Vec2::new(20.0, 0.0), 0.0).unwrap_or_default();
+        assert!((x.x - 120.0).abs() < 1e-9 && x.w == 100.0 && x.y == 0.0, "the frame moved: {x:?}");
+        assert!(close(c, [0.35, 0.0, 0.15, 0.0]), "{c:?}");
+        let img = |x: &Xfrm, c| x.x + image_rect(x.w, x.h, c).x0;
+        assert!((img(&o, crop) - img(&x, c)).abs() < 1e-9, "the image stayed at x = 50");
+        // Near the image's edge the frame's edge snaps onto it.
+        let (x, c) = move_frame(&o, crop, Vec2::new(-48.0, 0.0), 3.0).unwrap_or_default();
+        assert!(close(c, [0.0, 0.0, 0.5, 0.0]) && (x.x - 50.0).abs() < 1e-9, "{c:?} {x:?}");
+        // Rotated 90°, a move along the box's own x axis goes down the slide.
+        let r = Xfrm { rot: 90.0, ..o };
+        let (x, _) = move_frame(&r, crop, Vec2::new(20.0, 0.0), 0.0).unwrap_or_default();
+        assert!((x.x - 100.0).abs() < 1e-9 && (x.y - 20.0).abs() < 1e-9, "{x:?}");
+        assert!(move_frame(&o, crop, Vec2::new(f64::NAN, 0.0), 0.0).is_none());
     }
 }

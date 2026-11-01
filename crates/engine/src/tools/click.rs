@@ -22,7 +22,7 @@ impl Session {
         }
         // A double-click on the picture in crop mode ends crop mode, keeping the crop. The release
         // that follows ends the press's (empty) crop step.
-        if matches!(self.hit_test(p, tol), Some(Hit::CropImage { .. })) {
+        if matches!(self.hit_test(p, tol), Some(Hit::CropFrame { .. } | Hit::CropImage { .. })) {
             self.tool.drag = None;
             self.tool.crop = None;
             return Ok(json!({"cropping": Value::Null}));
@@ -100,6 +100,7 @@ impl Session {
                 | Hit::TableRow { id, .. }
                 | Hit::Warp { id, .. }
                 | Hit::CropHandle { id, .. }
+                | Hit::CropFrame { id }
                 | Hit::CropImage { id },
             ) => Some(*id),
             None => None,

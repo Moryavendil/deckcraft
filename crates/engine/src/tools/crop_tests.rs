@@ -51,7 +51,7 @@ fn crop_mode_toggles_and_its_handles_replace_the_box_handles() {
     assert_eq!(cropping(&s), Some(id));
     // The right edge's middle is a crop handle, not a resize handle.
     assert_eq!(s.hit_test(super::Point::new(300.0, 150.0), 3.0), Some(Hit::CropHandle { id, handle: 3 }));
-    assert_eq!(s.hit_test(super::Point::new(150.0, 150.0), 3.0), Some(Hit::CropImage { id }));
+    assert_eq!(s.hit_test(super::Point::new(150.0, 150.0), 3.0), Some(Hit::CropFrame { id }));
     // Clicking Crop again leaves crop mode.
     s.execute("picture.cropMode", &json!({})).unwrap();
     assert_eq!(cropping(&s), None);
@@ -80,18 +80,37 @@ fn dragging_a_crop_handle_crops_that_side_in_one_undo_step() {
 }
 
 #[test]
-fn dragging_the_picture_in_crop_mode_moves_the_image_not_the_frame() {
+fn dragging_inside_the_frame_moves_the_kept_area_over_the_image() {
+    let (mut s, id) = picture();
+    s.execute("picture.crop", &json!({"left": 0.25, "right": 0.25})).unwrap();
+    s.execute("picture.cropMode", &json!({})).unwrap();
+    // The 200 pt frame at x = 100 shows the middle half of a 400 pt image lying at x = 0.
+    assert_eq!(s.hit_test(super::Point::new(200.0, 150.0), 3.0), Some(Hit::CropFrame { id }));
+    drag(&mut s, (200.0, 150.0), (220.0, 150.0));
+    let (x, c) = state(&s, id);
+    assert!((x.x - 120.0).abs() < 1e-6 && (x.w - 200.0).abs() < 1e-6 && x.y == 100.0, "the frame moved: {x:?}");
+    assert!(close(c, [0.3, 0.0, 0.2, 0.0]), "{c:?}");
+    let image_left = x.x + super::crop::image_rect(x.w, x.h, c).x0;
+    assert!(image_left.abs() < 1e-6, "the image stayed at x = 0: {image_left}");
+    // Still cropping, and one undo step.
+    assert_eq!(cropping(&s), Some(id));
+    s.execute("edit.undo", &json!({})).unwrap();
+    assert!(close(state(&s, id).1, [0.25, 0.0, 0.25, 0.0]) && state(&s, id).0.x == 100.0);
+}
+
+#[test]
+fn dragging_the_cropped_away_image_moves_it_under_the_frame() {
     let (mut s, id) = picture();
     s.execute("picture.crop", &json!({"left": 0.25, "right": 0.25})).unwrap();
     s.execute("picture.cropMode", &json!({})).unwrap();
     let before = state(&s, id).0;
-    drag(&mut s, (200.0, 150.0), (220.0, 150.0));
+    // Left of the frame, over the see-through part of the image.
+    assert_eq!(s.hit_test(super::Point::new(30.0, 150.0), 3.0), Some(Hit::CropImage { id }));
+    drag(&mut s, (30.0, 150.0), (50.0, 150.0));
     let (x, c) = state(&s, id);
     assert_eq!(x, before, "the frame stays put");
-    // The image (400 pt wide on the slide) moved 20 pt right: 5% less cropped on the left.
+    // The 400 pt image moved 20 pt right: 5% less cropped on the left.
     assert!(close(c, [0.2, 0.0, 0.3, 0.0]), "{c:?}");
-    // The cropped-away part around the frame grabs the image too.
-    assert_eq!(s.hit_test(super::Point::new(30.0, 150.0), 3.0), Some(Hit::CropImage { id }));
 }
 
 #[test]

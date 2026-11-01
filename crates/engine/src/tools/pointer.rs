@@ -48,7 +48,10 @@ impl Session {
                 let local = x.affine().inverse() * p;
                 let inv = x.affine().inverse();
                 let img = Rect::from_points(inv * corners[0], inv * corners[2]);
-                if Rect::new(0.0, 0.0, x.w, x.h).contains(local) || img.contains(local) {
+                if Rect::new(0.0, 0.0, x.w, x.h).contains(local) {
+                    return Some(Hit::CropFrame { id });
+                }
+                if img.contains(local) {
                     return Some(Hit::CropImage { id });
                 }
             }
@@ -335,6 +338,11 @@ impl Session {
                     self.tool.drag = Some(Drag::CropEdge { id, handle, orig, crop, start: p });
                     return Ok(json!({"hit": serde_json::to_value(&hit).unwrap_or_default()}));
                 }
+                (Some(Hit::CropFrame { id }), Some((orig, crop))) => {
+                    self.begin("Crop");
+                    self.tool.drag = Some(Drag::CropMove { id, orig, crop, start: p });
+                    return Ok(json!({"hit": serde_json::to_value(&hit).unwrap_or_default()}));
+                }
                 (Some(Hit::CropImage { id }), Some((orig, crop))) => {
                     self.begin("Crop");
                     self.tool.drag = Some(Drag::CropPan { id, orig, crop, start: p });
@@ -366,7 +374,7 @@ impl Session {
                 self.tool.drag = Some(Drag::Rotate { ids, center, start, origs });
             }
             // Only reached outside Edit Points and crop mode (handled above).
-            Some(Hit::Vertex { .. } | Hit::Handle { .. } | Hit::CropHandle { .. } | Hit::CropImage { .. }) => {}
+            Some(Hit::Vertex { .. } | Hit::Handle { .. } | Hit::CropHandle { .. } | Hit::CropFrame { .. } | Hit::CropImage { .. }) => {}
             Some(Hit::Adjust { id, index }) => {
                 let orig = st.shape(id).map(|s| xfrm_of(&st.doc, &st.selection, s)).unwrap_or_default();
                 self.begin("Adjust Shape");

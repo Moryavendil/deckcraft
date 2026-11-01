@@ -92,7 +92,7 @@ menu colours taken from the theme tokens (menu `chrome`, page `card`).
 | Connector glue and rerouting | yes | yes |
 | Edit points on freeforms | yes | partial: Edit Shape ▸ Edit Points turns any shape into a freeform; drag vertices and their Bézier handles (hold Shift, Ctrl/Cmd or Alt/Option while dragging a handle for a smooth, straight or corner point), Ctrl/Cmd-click to add or delete, right-click a point for Smooth/Straight/Corner Point, Delete Point and Open/Close Path, or a segment for Straight/Curved Segment, Add Point, Delete Segment (grayed out on an open outline) and Open/Close Path |
 | WordArt adjust handles | yellow handles on transformed text | yes, one per adjust when the text has a warp; dragging sets that guide value |
-| Crop handles, crop to shape, aspect ratio | yes | partial (crop mode: drag the crop handles, move the picture in its frame, cropped-away part shown see-through; no aspect-ratio presets, Fill or Fit; videos can't be cropped yet) |
+| Crop handles, crop to shape, aspect ratio | yes | partial (crop mode: drag the crop handles, move the kept area over the image or the image under it, cropped-away part shown see-through; no aspect-ratio presets, Fill or Fit; videos can't be cropped yet) |
 | Text caret, selection, double/triple click, drag-select | yes | yes |
 | Exact size/position, lock aspect | yes | yes — Size and Position dialog (height, width, rotation, scale %, lock aspect, position from the top-left), one undo step; ribbon spinners still resize one side at a time |
 | Drag the frame of a text box being edited to move it | yes | yes |
@@ -171,7 +171,7 @@ consistency is open (#73, #56).
 
 | Date | Change | Summary |
 |---|---|---|
-| 2026-11-01 | minor | Picture Format › Crop is a split button: Crop turns crop mode on (the button stays pressed) and off; the picture shows crop handles at its frame, the cropped-away image around it is drawn see-through, dragging a handle crops or uncrops that side and dragging the picture moves the image in its frame; Esc, Enter, a click elsewhere or a double-click also finish |
+| 2026-11-01 | minor | Picture Format › Crop is a split button: Crop turns crop mode on (the button stays pressed) and off; the picture shows crop handles at its frame, the cropped-away image around it is drawn see-through, dragging a handle crops or uncrops that side dragging inside the frame moves the kept area over the image and dragging the see-through part moves the image under the frame; Esc, Enter, a click elsewhere or a double-click also finish |
 | 2026-10-29 | trivial | Picture Format: the Picture Styles row shows as many styles as fit beside the groups after it (at least two) and a More arrow with all 24, as the Transitions and Animations galleries do; Crop and Size are in view in the default window (#1232) |
 | 2026-10-26 | trivial | Thumbnail pane and Slide Sorter: dragging one of several selected slides moves the whole selection |
 | 2026-10-24 | trivial | Table cells: dragging across cells selects a range of cells |
