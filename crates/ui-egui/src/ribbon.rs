@@ -30,6 +30,7 @@ mod smartart;
 mod table;
 mod title_bar;
 mod transitions;
+mod video_format;
 mod view;
 
 use animations::animations;
@@ -62,6 +63,7 @@ pub use transitions::paint_transition_tile;
 #[cfg(test)]
 use transitions::transition_effect_rows;
 use transitions::transitions;
+use video_format::video_format;
 use view::view;
 
 /// Is engine command `id` enabled right now?
@@ -110,6 +112,9 @@ fn contextual(app: &SlideApp) -> Vec<&'static str> {
     }
     if shapes.iter().any(|s| matches!(s.kind, ShapeKind::Chart(_))) {
         v.push("Chart Design");
+    }
+    if shapes.iter().any(|s| matches!(&s.kind, ShapeKind::Media(m) if m.video)) {
+        v.push("Video Format");
     }
     if shapes.iter().any(|s| matches!(s.kind, ShapeKind::Media(_))) {
         v.push("Playback");
@@ -224,6 +229,7 @@ pub fn show(app: &mut SlideApp, ui: &mut Ui) {
                         "View" => view(app, ui),
                         "Shape Format" => shape_format(app, ui),
                         "Picture Format" => picture_format(app, ui),
+                        "Video Format" => video_format(app, ui),
                         "Table Design" => table_design(app, ui),
                         "Layout" => table_layout(app, ui),
                         "Chart Design" => chart_design(app, ui),

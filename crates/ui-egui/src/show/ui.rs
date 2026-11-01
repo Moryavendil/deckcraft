@@ -5,8 +5,7 @@ use super::media::{
 use super::presenter::{PresenterTimer, format_elapsed, presenter_window};
 use super::render::{below_playing_video, fit, part_textures, quad_mesh, render_frame, render_overlay, render_threads, start_prefetch};
 use super::zoom::{
-    Zoom, grid_indices, norm_on_slide, paint_grid, see_all_hit, slide_aspect, slide_box, slide_to_screen, toggle_blank, tool_bar_rect, unit_uv,
-    wheel_zoom_lines,
+    Zoom, grid_indices, norm_on_slide, paint_grid, see_all_hit, slide_aspect, slide_to_screen, toggle_blank, tool_bar_rect, unit_uv, wheel_zoom_lines,
 };
 use super::{
     Align2, BackKey, Click, Color32, CornerRadius, Key, Layer, LinkJump, Pos2, Rect, RenderOpts, Sense, ShapeId, ShapeState, Show, ShowAction,
@@ -531,13 +530,21 @@ fn draw_videos(app: &mut SlideApp, show: &mut Show, f: &Fr, sl: &Sl, painter: &e
         if !clip.video || sl.hidden.contains(id) {
             continue;
         }
-        let r = if clip.full_screen && app.media.is_playing(*id) {
+        let painted = if clip.full_screen && app.media.is_playing(*id) {
             full_screen = true;
-            full
+            let o = full.min;
+            crate::media::paint_frame(painter, &app.media, *id, (full.width() as f64, full.height() as f64), clip.crop, &|lx, ly| {
+                o + egui::vec2(lx as f32, ly as f32)
+            })
         } else {
-            slide_box(srect, uv, (sw, sh), (x.x as f32, x.y as f32, x.w as f32, x.h as f32))
+            // Through the clip's own box, so a turned or mirrored video plays turned or mirrored.
+            let a = x.affine();
+            crate::media::paint_frame(painter, &app.media, *id, (x.w, x.h), clip.crop, &|lx, ly| {
+                let q = a * deckcraft_geom::Point::new(lx, ly);
+                slide_to_screen(srect, uv, q.x as f32 / sw.max(1.0), q.y as f32 / sh.max(1.0))
+            })
         };
-        if crate::media::paint_frame(painter, &app.media, *id, r, clip.crop) {
+        if painted {
             framed.push(*id);
         }
     }

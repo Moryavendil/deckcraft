@@ -151,9 +151,9 @@ fn crop_mode_refuses_what_it_cannot_crop() {
     let (mut s, id) = picture();
     let rect = s.execute("shape.insert", &json!({"preset": "rect", "rect": [400, 300, 50, 50]})).unwrap()["id"].as_u64().unwrap();
     s.execute("edit.select", &json!({"ids": [rect]})).unwrap();
-    assert!(s.execute("picture.cropMode", &json!({})).unwrap_err().to_string().contains("only a picture"));
+    assert!(s.execute("picture.cropMode", &json!({})).unwrap_err().to_string().contains("only a picture or a video"));
     s.execute("edit.select", &json!({"ids": [id.0, rect]})).unwrap();
-    assert!(s.execute("picture.cropMode", &json!({})).unwrap_err().to_string().contains("select one picture"));
+    assert!(s.execute("picture.cropMode", &json!({})).unwrap_err().to_string().contains("select one picture or video"));
     s.execute("edit.select", &json!({"ids": [id.0]})).unwrap();
     s.execute("shape.lock", &json!({"locked": true})).unwrap();
     assert!(s.execute("picture.cropMode", &json!({})).unwrap_err().to_string().contains("locked"));
@@ -182,4 +182,85 @@ fn a_rotated_picture_crops_along_its_own_edges() {
     assert_eq!(s.hit_test(super::Point::new(200.0, 250.0), 3.0), Some(Hit::CropHandle { id, handle: 3 }));
     drag(&mut s, (200.0, 250.0), (200.0, 200.0));
     assert!(close(state(&s, id).1, [0.0, 0.0, 0.25, 0.0]), "{:?}", state(&s, id).1);
+}
+
+/// The picture of [`picture`] turned into a video clip (its image as the poster frame), or into
+/// audio when `video` is false.
+fn clip(video: bool) -> (Session, ShapeId) {
+    let (mut s, id) = picture();
+    s.edit(|doc, sel| {
+        if let Some(sh) = crate::shapes_mut(doc, sel).and_then(|l| deckcraft_model::find_shape_mut(l, id))
+            && let ShapeKind::Picture { fill } = &sh.kind
+        {
+            let media = fill.media;
+            sh.kind = ShapeKind::Media(deckcraft_model::MediaClip { media, video, poster: Some(media), ..Default::default() });
+        }
+        Ok(())
+    })
+    .unwrap();
+    (s, id)
+}
+
+fn clip_state(s: &Session, id: ShapeId) -> (Xfrm, [f64; 4]) {
+    let sh = s.doc().unwrap().shape(id).unwrap();
+    let ShapeKind::Media(m) = &sh.kind else { panic!("not a clip") };
+    (sh.xfrm.unwrap(), m.crop)
+}
+
+#[test]
+fn a_video_crops_by_hand_like_a_picture() {
+    let (mut s, id) = clip(true);
+    assert_eq!(s.execute("picture.cropMode", &json!({})).unwrap()["cropping"], json!(id.0));
+    assert_eq!(s.hit_test(super::Point::new(300.0, 150.0), 3.0), Some(Hit::CropHandle { id, handle: 3 }));
+    drag(&mut s, (300.0, 150.0), (250.0, 150.0));
+    let (x, c) = clip_state(&s, id);
+    assert!(close(c, [0.0, 0.0, 0.25, 0.0]) && (x.w - 150.0).abs() < 1e-6, "{c:?} {x:?}");
+    // Moving the kept area over the video.
+    drag(&mut s, (150.0, 150.0), (170.0, 150.0));
+    let (x, c) = clip_state(&s, id);
+    assert!(close(c, [0.1, 0.0, 0.15, 0.0]) && (x.x - 120.0).abs() < 1e-6, "{c:?} {x:?}");
+    assert_eq!(s.key("escape", Mods::default()).unwrap()["handled"], json!(true));
+    assert_eq!(cropping(&s), None);
+    // The crop presets work on a video too.
+    s.execute("picture.crop", &json!({"left": 0.0, "top": 0.1, "right": 0.0, "bottom": 0.1})).unwrap();
+    assert!(close(clip_state(&s, id).1, [0.0, 0.1, 0.0, 0.1]));
+}
+
+#[test]
+fn audio_has_nothing_to_crop() {
+    let (mut s, _) = clip(false);
+    assert!(s.execute("picture.cropMode", &json!({})).unwrap_err().to_string().contains("only a picture or a video"));
+}
+
+#[test]
+fn a_video_rotates_and_flips() {
+    let (mut s, id) = clip(true);
+    s.execute("arrange.rotateRight", &json!({})).unwrap();
+    s.execute("arrange.flipHorizontal", &json!({})).unwrap();
+    let x = clip_state(&s, id).0;
+    // Flipping a turned shape mirrors its turn as well, as in PowerPoint: 90° becomes 270°.
+    assert!((x.rot - 270.0).abs() < 1e-9 && x.flip_h && !x.flip_v, "{x:?}");
+    s.execute("arrange.flipVertical", &json!({})).unwrap();
+    assert!(clip_state(&s, id).0.flip_v);
+}
+
+#[test]
+fn a_cropped_turned_mirrored_video_survives_a_pptx_round_trip() {
+    let mut s = Session::with_new();
+    let video = include_bytes!("../../../media/tests/fixtures/clip-h264.mp4");
+    let id = s.execute("insert.video", &json!({"name": "clip.mp4", "data": crate::cmd::base64_encode(video)})).unwrap()["id"].as_u64().unwrap();
+    let id = ShapeId(id as u32);
+    s.execute("edit.select", &json!({"ids": [id.0]})).unwrap();
+    s.execute("picture.crop", &json!({"left": 0.1, "top": 0.2, "right": 0.05, "bottom": 0.0})).unwrap();
+    s.execute("arrange.rotateRight", &json!({})).unwrap();
+    s.execute("arrange.flipVertical", &json!({})).unwrap();
+    let before = clip_state(&s, id);
+    let saved = s.execute("file.saveBytes", &json!({"format": "pptx"})).unwrap();
+    s.execute("file.openBytes", &json!({"name": "deck.pptx", "data": saved["data"]})).unwrap();
+    let st = s.doc().unwrap();
+    let sh = st.shapes().iter().find(|sh| matches!(&sh.kind, ShapeKind::Media(m) if m.video)).expect("the video");
+    let ShapeKind::Media(m) = &sh.kind else { panic!("not a clip") };
+    assert!(close(m.crop, before.1), "{:?} vs {:?}", m.crop, before.1);
+    let x = sh.xfrm.unwrap();
+    assert!((x.rot - before.0.rot).abs() < 1e-3 && x.flip_v == before.0.flip_v && x.flip_h == before.0.flip_h, "{x:?} vs {:?}", before.0);
 }

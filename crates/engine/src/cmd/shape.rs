@@ -152,7 +152,7 @@ pub fn specs() -> Vec<CommandSpec> {
             "Crop",
             ["Picture Format", "Size"],
             None,
-            "{left?: fraction 0..1, top?: fraction 0..1, right?: fraction 0..1, bottom?: fraction 0..1, ids?}",
+            "{left?: fraction 0..1, top?: fraction 0..1, right?: fraction 0..1, bottom?: fraction 0..1, ids?} — pictures and videos",
             has_selection,
             crop
         ),
@@ -161,7 +161,7 @@ pub fn specs() -> Vec<CommandSpec> {
             "Crop Mode",
             ["Picture Format", "Size"],
             None,
-            "{on?: bool (default: toggle), id?} — enter or leave crop mode for one picture: drag its crop handles (pointer gestures, hits `cropHandle`) to crop or uncrop a side, drag inside the frame (`cropFrame`) to move the kept area over the image, or the cropped-away image around it (`cropImage`) to move the image under the frame; Esc, Enter or a press elsewhere ends it, keeping the crop",
+            "{on?: bool (default: toggle), id?} — enter or leave crop mode for one picture or video (Picture Format or Video Format › Crop): drag its crop handles (pointer gestures, hits `cropHandle`) to crop or uncrop a side, drag inside the frame (`cropFrame`) to move the kept area over the image, or the cropped-away image around it (`cropImage`) to move the image under the frame; Esc, Enter or a press elsewhere ends it, keeping the crop",
             has_selection,
             crop_mode
         ),

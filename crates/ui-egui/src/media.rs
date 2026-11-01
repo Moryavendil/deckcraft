@@ -406,27 +406,72 @@ pub fn clock(secs: f64) -> String {
     format!("{:02}:{:05.2}", (s / 60.0) as u32, s % 60.0)
 }
 
-/// The part of a video frame a picture crop (left, top, right, bottom fractions) leaves visible.
-fn crop_uv(crop: [f64; 4]) -> Rect {
-    let [l, t, r, b] = crop.map(|v| if v.is_finite() { v.clamp(0.0, 0.99) as f32 } else { 0.0 });
-    Rect::from_min_max(pos2(l, t), pos2((1.0 - r).max(l + 0.01), (1.0 - b).max(t + 0.01)))
+/// Where a video frame goes in a `w` × `h` box (the clip's own coordinates) and which part of the
+/// frame (texture coordinates) shows there. A cropped clip shows the crop's part of the frame over
+/// the box, as PowerPoint does, cut to the box when the crop pads outward; an uncropped one shows
+/// the whole frame letterboxed to its aspect (`tex`, the frame's size in pixels).
+pub(crate) fn frame_layout(w: f64, h: f64, crop: [f64; 4], tex: (f64, f64)) -> Option<(deckcraft_geom::Rect, Rect)> {
+    if !(w > 0.0 && h > 0.0 && w.is_finite() && h.is_finite()) {
+        return None;
+    }
+    let frame = deckcraft_geom::Rect::new(0.0, 0.0, w, h);
+    if crop.iter().any(|v| *v != 0.0) {
+        let img = deckcraft_render::crop_dest(frame, crop);
+        let vis = img.intersect(frame);
+        if !(vis.width() > 1e-9 && vis.height() > 1e-9 && img.width() > 1e-9 && img.height() > 1e-9) {
+            return None;
+        }
+        let u = |x: f64| ((x - img.x0) / img.width()) as f32;
+        let v = |y: f64| ((y - img.y0) / img.height()) as f32;
+        return Some((vis, Rect::from_min_max(pos2(u(vis.x0), v(vis.y0)), pos2(u(vis.x1), v(vis.y1)))));
+    }
+    let (tw, th) = (tex.0.max(1.0), tex.1.max(1.0));
+    let k = (w / tw).min(h / th);
+    let (fw, fh) = (tw * k, th * k);
+    let r = deckcraft_geom::Rect::new((w - fw) / 2.0, (h - fh) / 2.0, (w + fw) / 2.0, (h + fh) / 2.0);
+    Some((r, Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0))))
 }
 
-/// Draw the playing video frame of `id` into `rect`: letterboxed to the frame's aspect, or, when
-/// the video is cropped, the cropped part stretched over the whole box as PowerPoint shows it.
-pub fn paint_frame(painter: &egui::Painter, host: &MediaHost, id: ShapeId, rect: Rect, crop: [f64; 4]) -> bool {
-    let Some(tex) = host.texture(id) else { return false };
-    if crop.iter().any(|v| *v > 0.0) {
-        painter.rect_filled(rect, CornerRadius::ZERO, Color32::BLACK);
-        painter.image(tex.id(), rect, crop_uv(crop), Color32::WHITE);
-        return true;
+/// A quad in a box's own coordinates (`r`), drawn through `to_screen` (which may turn and mirror
+/// it): `uv` of `tex`, or a flat `color` with no texture.
+fn paint_quad(
+    painter: &egui::Painter,
+    tex: Option<egui::TextureId>,
+    r: deckcraft_geom::Rect,
+    uv: Rect,
+    color: Color32,
+    to_screen: &dyn Fn(f64, f64) -> Pos2,
+) {
+    let mut mesh = egui::Mesh::with_texture(tex.unwrap_or_default());
+    let corners =
+        [(r.x0, r.y0, uv.min.x, uv.min.y), (r.x1, r.y0, uv.max.x, uv.min.y), (r.x1, r.y1, uv.max.x, uv.max.y), (r.x0, r.y1, uv.min.x, uv.max.y)];
+    for (x, y, u, v) in corners {
+        // A flat quad samples egui's white texel, as `Mesh::add_colored_rect` does.
+        let uv = if tex.is_some() { pos2(u, v) } else { egui::epaint::WHITE_UV };
+        mesh.vertices.push(egui::epaint::Vertex { pos: to_screen(x, y), uv, color });
     }
-    let [w, h] = tex.size();
-    let (w, h) = (w.max(1) as f32, h.max(1) as f32);
-    let k = (rect.width() / w).min(rect.height() / h);
-    let r = Rect::from_center_size(rect.center(), vec2(w * k, h * k));
-    painter.rect_filled(rect, CornerRadius::ZERO, Color32::BLACK);
-    painter.image(tex.id(), r, Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0)), Color32::WHITE);
+    mesh.indices.extend([0, 1, 2, 0, 2, 3]);
+    painter.add(egui::Shape::mesh(mesh));
+}
+
+/// Draw the playing video frame of `id` in its `w` × `h` box, given in the clip's own coordinates
+/// and placed on screen by `to_screen` (which carries the clip's rotation and flips). The box is
+/// black behind the frame; see [`frame_layout`] for cropping and letterboxing.
+pub fn paint_frame(
+    painter: &egui::Painter,
+    host: &MediaHost,
+    id: ShapeId,
+    (w, h): (f64, f64),
+    crop: [f64; 4],
+    to_screen: &dyn Fn(f64, f64) -> Pos2,
+) -> bool {
+    let Some(tex) = host.texture(id) else { return false };
+    let [tw, th] = tex.size();
+    let full = Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0));
+    paint_quad(painter, None, deckcraft_geom::Rect::new(0.0, 0.0, w, h), full, Color32::BLACK, to_screen);
+    if let Some((r, uv)) = frame_layout(w, h, crop, (tw as f64, th as f64)) {
+        paint_quad(painter, Some(tex.id()), r, uv, Color32::WHITE, to_screen);
+    }
     true
 }
 
@@ -580,8 +625,19 @@ mod tests {
 
     #[test]
     fn a_video_crop_shows_only_the_cropped_part_of_the_frame() {
-        assert_eq!(crop_uv([0.0; 4]), Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0)));
-        assert_eq!(crop_uv([0.25, 0.5, 0.25, 0.0]), Rect::from_min_max(pos2(0.25, 0.5), pos2(0.75, 1.0)));
+        let full = Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0));
+        // Uncropped: the whole frame, letterboxed (a 2:1 frame in a 100 pt square).
+        let (r, uv) = frame_layout(100.0, 100.0, [0.0; 4], (200.0, 100.0)).unwrap();
+        assert_eq!((r, uv), (deckcraft_geom::Rect::new(0.0, 25.0, 100.0, 75.0), full));
+        // Cropped: the crop's part of the frame over the whole box.
+        let (r, uv) = frame_layout(100.0, 50.0, [0.25, 0.5, 0.25, 0.0], (200.0, 100.0)).unwrap();
+        assert_eq!(r, deckcraft_geom::Rect::new(0.0, 0.0, 100.0, 50.0));
+        assert_eq!(uv, Rect::from_min_max(pos2(0.25, 0.5), pos2(0.75, 1.0)));
+        // Padded outward on the left: the frame starts a third of the way in, and all of it shows.
+        let (r, uv) = frame_layout(150.0, 100.0, [-0.5, 0.0, 0.0, 0.0], (1.0, 1.0)).unwrap();
+        assert!((r.x0 - 50.0).abs() < 1e-9 && r.x1 == 150.0, "{r:?}");
+        assert_eq!(uv, full);
+        assert!(frame_layout(0.0, 10.0, [0.0; 4], (1.0, 1.0)).is_none());
     }
 
     /// 16-bit mono WAV of a constant level, `secs` long at 8 kHz.

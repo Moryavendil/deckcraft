@@ -325,7 +325,8 @@ pub struct ToolState {
     pub edit_segment_t: Option<f64>,
     /// The point type last chosen for a vertex (shape, path, index, type): handle drags follow it.
     pub vertex_kind: Option<(ShapeId, usize, usize, String)>,
-    /// The picture in crop mode (Picture Format › Crop): crop handles replace its box handles.
+    /// The picture or video in crop mode (Picture or Video Format › Crop): crop handles replace
+    /// its box handles.
     pub crop: Option<ShapeId>,
     /// Drawing guides are shown (View › Guides): they can be dragged and shapes snap to them.
     pub guides_visible: bool,
@@ -352,7 +353,8 @@ impl ToolState {
         })
     }
 
-    /// The picture in crop mode, while it is still the one selected shape and can be cropped.
+    /// The picture or video in crop mode, while it is still the one selected shape and can be
+    /// cropped.
     pub fn cropping(&self, st: &crate::DocState) -> Option<ShapeId> {
         self.crop.filter(|id| st.selection.shapes.as_slice() == [*id] && st.selection.text.is_none() && croppable(st, *id).is_ok())
     }
@@ -363,14 +365,35 @@ impl ToolState {
     }
 }
 
-/// Whether `id` is a picture crop mode can work on: a picture on the slide itself (not in a group),
-/// unlocked, its image stretched over its box. The error says why not.
+/// The crop (left, top, right, bottom fractions) of a picture or a video; `None` for anything
+/// else, audio included.
+pub fn shape_crop(sh: &Shape) -> Option<[f64; 4]> {
+    match &sh.kind {
+        ShapeKind::Picture { fill } => Some(fill.crop),
+        ShapeKind::Media(m) if m.video => Some(m.crop),
+        _ => None,
+    }
+}
+
+/// Set the crop of a picture or a video (anything else is left alone).
+pub(crate) fn set_shape_crop(sh: &mut Shape, crop: [f64; 4]) {
+    match &mut sh.kind {
+        ShapeKind::Picture { fill } => fill.crop = crop,
+        ShapeKind::Media(m) if m.video => m.crop = crop,
+        _ => {}
+    }
+}
+
+/// Whether `id` is a picture or video crop mode can work on: on the slide itself (not in a
+/// group), unlocked, a picture's image stretched over its box. The error says why not.
 pub(crate) fn croppable(st: &crate::DocState, id: ShapeId) -> std::result::Result<(), &'static str> {
     use deckcraft_model::style::PictureMode;
     let sh = st.shape(id).ok_or("no such shape")?;
-    let ShapeKind::Picture { fill } = &sh.kind else { return Err("only a picture can be cropped") };
+    if shape_crop(sh).is_none() {
+        return Err("only a picture or a video can be cropped");
+    }
     if !st.shapes().iter().any(|t| t.id == id) {
-        return Err("a picture in a group can't be cropped here; ungroup it first");
+        return Err("a picture or video in a group can't be cropped here; ungroup it first");
     }
     if sh.locked {
         return Err("the object is locked");
@@ -378,19 +401,21 @@ pub(crate) fn croppable(st: &crate::DocState, id: ShapeId) -> std::result::Resul
     if sh.xfrm.is_none_or(|x| !(x.w > 0.0 && x.h > 0.0)) {
         return Err("the picture has no size");
     }
-    if !matches!(fill.mode, PictureMode::Stretch { fill_rect } if fill_rect == [0.0; 4]) {
+    if let ShapeKind::Picture { fill } = &sh.kind
+        && !matches!(fill.mode, PictureMode::Stretch { fill_rect } if fill_rect == [0.0; 4])
+    {
         return Err("a tiled or inset picture fill can't be cropped");
     }
     Ok(())
 }
 
-/// The crop handles of a picture in crop mode, in slide coordinates: the frame's corners and edge
-/// middles (NW, N, NE, E, SE, S, SW, W), and the whole image's corners (NW, NE, SE, SW).
+/// The crop handles of a picture or video in crop mode, in slide coordinates: the frame's corners
+/// and edge middles (NW, N, NE, E, SE, S, SW, W), and the whole image's corners (NW, NE, SE, SW).
 pub fn crop_handles(st: &crate::DocState, id: ShapeId) -> Option<([Point; 8], [Point; 4])> {
     let sh = st.shape(id)?;
-    let ShapeKind::Picture { fill } = &sh.kind else { return None };
+    let c = shape_crop(sh)?;
     let x = xfrm_of(&st.doc, &st.selection, sh);
-    let img = crop::image_rect(x.w, x.h, fill.crop);
+    let img = crop::image_rect(x.w, x.h, c);
     let a = x.affine();
     let corners = [Point::new(img.x0, img.y0), Point::new(img.x1, img.y0), Point::new(img.x1, img.y1), Point::new(img.x0, img.y1)].map(|q| a * q);
     Some((box_handles(&x).0, corners))

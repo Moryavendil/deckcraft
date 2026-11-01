@@ -1,4 +1,4 @@
-use super::{Rect, Sense, SlideApp, Target, Ui, Xf, json, pos2, screen_rect, vec2};
+use super::{Point, Rect, Sense, SlideApp, Target, Ui, Xf, json, pos2, screen_rect, vec2};
 
 /// Play/pause on an animated GIF under the pointer or selected on its own.
 pub(super) fn gif_buttons(app: &mut SlideApp, ui: &mut Ui, xf: Xf, gifs: &[crate::media::Gif]) {
@@ -36,7 +36,9 @@ pub(super) fn media_frames(app: &SlideApp, painter: &egui::Painter, xf: Xf) {
     }
     for (id, x, clip) in crate::media::slide_media(&d.doc, d.selection.slide) {
         if clip.video {
-            crate::media::paint_frame(painter, &app.media, id, screen_rect(xf, &x), clip.crop);
+            // Through the clip's own box, so a turned or mirrored video plays turned or mirrored.
+            let a = x.affine();
+            crate::media::paint_frame(painter, &app.media, id, (x.w, x.h), clip.crop, &|lx, ly| xf.to_screen(a * Point::new(lx, ly)));
         }
     }
 }

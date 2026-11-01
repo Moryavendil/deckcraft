@@ -344,12 +344,6 @@ pub(super) fn slide_to_screen(srect: Rect, uv: Rect, nx: f32, ny: f32) -> Pos2 {
     pos2(srect.min.x + u * srect.width(), srect.min.y + v * srect.height())
 }
 
-pub(super) fn slide_box(srect: Rect, uv: Rect, (slide_w, slide_h): (f32, f32), (x, y, w, h): (f32, f32, f32, f32)) -> Rect {
-    let a = slide_to_screen(srect, uv, x / slide_w.max(1.0), y / slide_h.max(1.0));
-    let b = slide_to_screen(srect, uv, (x + w) / slide_w.max(1.0), (y + h) / slide_h.max(1.0));
-    Rect::from_min_max(a, b)
-}
-
 pub(super) fn paint_grid(painter: &egui::Painter, ctx: &egui::Context, show: &mut Show, doc: &Presentation, full: Rect) {
     let slides = grid_indices(doc.slides.len());
     let aspect = slide_aspect(doc);

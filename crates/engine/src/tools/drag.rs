@@ -344,15 +344,15 @@ impl Session {
         Ok(Value::Null)
     }
 
-    /// Sets a picture's crop, and its box when `x` is given, during a crop drag (one undo step
+    /// Sets a picture's or video's crop, and its box when `x` is given, during a crop drag (one undo step
     /// for the whole drag).
     fn set_picture_crop(&mut self, id: ShapeId, x: Option<Xfrm>, crop: [f64; 4]) -> Result<()> {
         self.edit(|doc, sel| {
             let list = crate::shapes_mut(doc, sel).ok_or_else(|| cmd::bad("picture.crop", "no slide"))?;
             if let Some(sh) = deckcraft_model::find_shape_mut(list, id)
-                && let ShapeKind::Picture { fill } = &mut sh.kind
+                && super::shape_crop(sh).is_some()
             {
-                fill.crop = crop;
+                super::set_shape_crop(sh, crop);
                 if let Some(x) = x {
                     sh.xfrm = Some(x);
                 }

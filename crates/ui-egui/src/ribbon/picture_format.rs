@@ -170,12 +170,18 @@ pub(super) fn picture_format(app: &mut SlideApp, ui: &mut Ui) {
         big(app, ui, Icon::AltText, "Alt\nText", "app.dialog", json!({"id": "altText"}));
     });
     arrange_group(app, ui);
+    crop_group(app, ui, true);
+    size_group(app, ui);
+}
+
+/// The Crop split button of Picture Format and Video Format, as in PowerPoint: Crop itself turns
+/// crop mode on and off (it stays pressed while cropping); the arrow has the other ways to crop.
+/// `shapes` offers Crop to Shape too (pictures only).
+pub(super) fn crop_group(app: &mut SlideApp, ui: &mut Ui, shapes: bool) {
     group(ui, |ui| {
-        // A split button, as in PowerPoint: Crop itself turns crop mode on and off (it stays
-        // pressed while the picture is being cropped); the arrow has the other ways to crop.
         let cropping = app.session.active().and_then(|st| app.session.tool.cropping(st)).is_some();
         let (main, arrow) = widgets::big_button_ex(ui, Icon::Crop, "Crop", enabled(app, "picture.cropMode"), true, cropping);
-        let tip = if cropping { "Crop: click again (or press Esc) to finish cropping" } else { "Crop: drag the crop handles to crop the picture" };
+        let tip = if cropping { "Crop: click again (or press Esc) to finish cropping" } else { "Crop: drag the crop handles to crop" };
         if main.on_hover_text(tip).clicked() {
             run(app, "picture.cropMode", json!({}));
         }
@@ -185,11 +191,13 @@ pub(super) fn picture_format(app: &mut SlideApp, ui: &mut Ui) {
                 run(app, "picture.cropMode", json!({}));
             }
             ui.separator();
-            ui.label("Crop to Shape");
-            if let Some(p) = shapes_gallery(ui) {
-                run(app, "shape.change", json!({"preset": p}));
+            if shapes {
+                ui.label("Crop to Shape");
+                if let Some(p) = shapes_gallery(ui) {
+                    run(app, "shape.change", json!({"preset": p}));
+                }
+                ui.separator();
             }
-            ui.separator();
             for (l, v) in [("Crop 10% each side", 0.1), ("Crop 20% each side", 0.2), ("Reset Crop", 0.0)] {
                 if ui.button(l).clicked() {
                     run(app, "picture.crop", json!({"left": v, "top": v, "right": v, "bottom": v}));
@@ -197,7 +205,6 @@ pub(super) fn picture_format(app: &mut SlideApp, ui: &mut Ui) {
             }
         });
     });
-    size_group(app, ui);
 }
 
 const STYLE_TILE: egui::Vec2 = vec2(56.0, 44.0);

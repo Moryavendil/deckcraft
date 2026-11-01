@@ -3,18 +3,20 @@ use super::{NO_ID_SPACE, Result, Session, Value, bad, bool_or, bool_param, edit_
 pub(super) fn crop(s: &mut Session, p: &Value) -> Result<Value> {
     let c = [f64_param(p, "left"), f64_param(p, "top"), f64_param(p, "right"), f64_param(p, "bottom")];
     edit_geometry(s, p, "picture.crop", |sh| {
-        if let deckcraft_model::ShapeKind::Picture { fill } = &mut sh.kind {
+        // A picture or a video: both keep their crop as left, top, right, bottom fractions.
+        if let Some(mut crop) = crate::tools::shape_crop(sh) {
             for (i, v) in c.iter().enumerate() {
-                if let (Some(v), Some(slot)) = (v, fill.crop.get_mut(i)) {
+                if let (Some(v), Some(slot)) = (v, crop.get_mut(i)) {
                     *slot = v.clamp(-10.0, 0.95);
                 }
             }
+            crate::tools::set_shape_crop(sh, crop);
         }
         Ok(())
     })
 }
 
-/// Enter or leave crop mode (Picture Format › Crop) for one selected picture.
+/// Enter or leave crop mode (Picture or Video Format › Crop) for one selected picture or video.
 pub(super) fn crop_mode(s: &mut Session, p: &Value) -> Result<Value> {
     let on = bool_param(p, "on").unwrap_or_else(|| s.doc().ok().and_then(|st| s.tool.cropping(st)).is_none());
     if !on {
@@ -25,7 +27,7 @@ pub(super) fn crop_mode(s: &mut Session, p: &Value) -> Result<Value> {
         Some(i) => i,
         None => match s.doc()?.selection.shapes.as_slice() {
             [one] => *one,
-            _ => return Err(bad("picture.cropMode", "select one picture")),
+            _ => return Err(bad("picture.cropMode", "select one picture or video")),
         },
     };
     crate::tools::croppable(s.doc()?, id).map_err(|e| bad("picture.cropMode", e))?;

@@ -328,10 +328,7 @@ impl Session {
         // does what it would have done (select another shape, start a marquee...).
         if let Some(cid) = self.doc().ok().and_then(|st| self.tool.cropping(st)) {
             let st = self.doc()?;
-            let at_press = st.shape(cid).and_then(|sh| match &sh.kind {
-                ShapeKind::Picture { fill } => Some((xfrm_of(&st.doc, &st.selection, sh), fill.crop)),
-                _ => None,
-            });
+            let at_press = st.shape(cid).and_then(|sh| Some((xfrm_of(&st.doc, &st.selection, sh), super::shape_crop(sh)?)));
             match (hit.clone(), at_press) {
                 (Some(Hit::CropHandle { id, handle }), Some((orig, crop))) => {
                     self.begin("Crop");

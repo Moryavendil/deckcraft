@@ -106,27 +106,37 @@ fn selection_handles(app: &SlideApp, st: &DocState, painter: &egui::Painter, xf:
 /// greyed, so it reads the same over a light or a dark slide and the slide shows through it.
 const CROP_GHOST_ALPHA: u8 = 110;
 
-/// Crop mode: the cropped-away part of the image, see-through, around the frame (the frame itself
-/// shows the cropped picture as rendered), the image's outline, and the crop handles: black bars at
-/// the frame's corners and edge middles, outlined in white so they show on any picture.
-fn crop_overlay(
+/// The whole image of the picture or video in crop mode: a picture's image; a video's current frame
+/// while it plays, else its poster frame. `None` when there is none to show.
+fn crop_ghost(
     textures: &mut crate::textures::Textures,
+    media: &crate::media::MediaHost,
     st: &DocState,
     id: deckcraft_model::ShapeId,
     ctx: &egui::Context,
-    painter: &egui::Painter,
-    xf: Xf,
-    t: &Tokens,
-) {
+) -> Option<egui::TextureHandle> {
+    let mut decoded = |m: deckcraft_model::MediaId| st.doc.media(m).and_then(|item| textures.crop_ghost(ctx, &item.data));
+    match &st.shape(id)?.kind {
+        deckcraft_model::ShapeKind::Picture { fill } => decoded(fill.media),
+        deckcraft_model::ShapeKind::Media(m) => media.texture(id).cloned().or_else(|| m.poster.and_then(decoded)),
+        _ => None,
+    }
+}
+
+/// Crop mode: the cropped-away part of the image (`ghost`), see-through, around the frame (the
+/// frame itself shows the cropped picture or video as rendered), the image's outline, and the crop
+/// handles: black bars at the frame's corners and edge middles, outlined in white so they show on
+/// any picture.
+fn crop_overlay(st: &DocState, id: deckcraft_model::ShapeId, ghost: Option<&egui::TextureHandle>, painter: &egui::Painter, xf: Xf, t: &Tokens) {
     let Some(sh) = st.shape(id) else { return };
-    let deckcraft_model::ShapeKind::Picture { fill } = &sh.kind else { return };
+    let Some(crop) = deckcraft_engine::tools::shape_crop(sh) else { return };
     let x = deckcraft_engine::cmd::xfrm_of(&st.doc, &st.selection, sh);
     let a = x.affine();
-    let img = deckcraft_engine::tools::crop::image_rect(x.w, x.h, fill.crop);
+    let img = deckcraft_engine::tools::crop::image_rect(x.w, x.h, crop);
     let to_screen = |px: f64, py: f64| xf.to_screen(a * Point::new(px, py));
     // The cropped-away bands: the image outside the frame, each piece a quad in the picture's
     // own (possibly rotated, flipped) coordinates.
-    if let Some(tex) = st.doc.media(fill.media).and_then(|m| textures.crop_ghost(ctx, &m.data))
+    if let Some(tex) = ghost
         && img.width() > 1e-9
         && img.height() > 1e-9
     {
@@ -237,7 +247,8 @@ pub(super) fn overlays(app: &mut SlideApp, ui: &Ui, painter: &egui::Painter, xf:
     }
     let Some(st) = app.session.active() else { return };
     if let Some(id) = app.session.tool.cropping(st) {
-        crop_overlay(&mut app.textures, st, id, ui.ctx(), painter, xf, t);
+        let ghost = crop_ghost(&mut app.textures, &app.media, st, id, ui.ctx());
+        crop_overlay(st, id, ghost.as_ref(), painter, xf, t);
     }
     selection_handles(app, st, painter, xf, t);
     text_overlays(st, ui, painter, xf, t);
