@@ -171,8 +171,20 @@ pub(super) fn picture_format(app: &mut SlideApp, ui: &mut Ui) {
     });
     arrange_group(app, ui);
     group(ui, |ui| {
-        let r = big_button(ui, Icon::Crop, "Crop", true);
-        egui::Popup::menu(&r).show(|ui| {
+        // A split button, as in PowerPoint: Crop itself turns crop mode on and off (it stays
+        // pressed while the picture is being cropped); the arrow has the other ways to crop.
+        let cropping = app.session.active().and_then(|st| app.session.tool.cropping(st)).is_some();
+        let (main, arrow) = widgets::big_button_ex(ui, Icon::Crop, "Crop", enabled(app, "picture.cropMode"), true, cropping);
+        let tip = if cropping { "Crop: click again (or press Esc) to finish cropping" } else { "Crop: drag the crop handles to crop the picture" };
+        if main.on_hover_text(tip).clicked() {
+            run(app, "picture.cropMode", json!({}));
+        }
+        let Some(arrow) = arrow else { return };
+        egui::Popup::menu(&arrow).show(|ui| {
+            if widgets::check_item(ui, "Crop", true, cropping).clicked() {
+                run(app, "picture.cropMode", json!({}));
+            }
+            ui.separator();
             ui.label("Crop to Shape");
             if let Some(p) = shapes_gallery(ui) {
                 run(app, "shape.change", json!({"preset": p}));

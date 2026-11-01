@@ -20,6 +20,13 @@ impl Session {
         if matches!(self.tool.drag, Some(Drag::Move { moved: false, .. })) {
             self.tool.drag = None;
         }
+        // A double-click on the picture in crop mode ends crop mode, keeping the crop. The release
+        // that follows ends the press's (empty) crop step.
+        if matches!(self.hit_test(p, tol), Some(Hit::CropImage { .. })) {
+            self.tool.drag = None;
+            self.tool.crop = None;
+            return Ok(json!({"cropping": Value::Null}));
+        }
         // In the text being edited: select the word double-clicked.
         if self.place_caret(p, tol, false)?.is_some() {
             return self.execute("text.selectWord", &json!({}));
@@ -91,7 +98,9 @@ impl Session {
                 | Hit::Frame { id }
                 | Hit::TableColumn { id, .. }
                 | Hit::TableRow { id, .. }
-                | Hit::Warp { id, .. },
+                | Hit::Warp { id, .. }
+                | Hit::CropHandle { id, .. }
+                | Hit::CropImage { id },
             ) => Some(*id),
             None => None,
         };

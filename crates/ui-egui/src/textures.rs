@@ -56,9 +56,28 @@ pub struct Textures {
     smartart: HashMap<String, TextureHandle>,
     clock: u64,
     pub last_render_ms: f64,
+    /// The whole image of the picture in crop mode (its media bytes, kept alive so the address
+    /// can't be reused), or `None` when it couldn't be decoded.
+    crop_ghost: Option<(Arc<Vec<u8>>, Option<TextureHandle>)>,
 }
 
 impl Textures {
+    /// The whole, uncropped image of a picture for crop mode, decoded once and cached (one picture
+    /// at a time: crop mode works on one).
+    pub fn crop_ghost(&mut self, ctx: &egui::Context, data: &Arc<Vec<u8>>) -> Option<TextureHandle> {
+        if let Some((d, tex)) = &self.crop_ghost
+            && Arc::ptr_eq(d, data)
+        {
+            return tex.clone();
+        }
+        let tex = deckcraft_render::decode_image(data).map(|img| {
+            let size = [img.width() as usize, img.height() as usize];
+            upload_editor(ctx, "crop-ghost", ColorImage::from_rgba_unmultiplied(size, img.as_raw()))
+        });
+        self.crop_ghost = Some((data.clone(), tex.clone()));
+        tex
+    }
+
     /// SmartArt gallery pictures cached so far (tests).
     pub fn smartart_cached(&self) -> usize {
         self.smartart.len()

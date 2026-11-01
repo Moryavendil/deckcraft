@@ -115,6 +115,28 @@ impl Session {
                     Ok(())
                 })?;
             }
+            Drag::CropEdge { id, handle, orig, crop, start } => {
+                let inv = orig.affine().inverse();
+                let d = inv * p - inv * start;
+                if let Some((x, c)) = super::crop::drag_edge(&orig, crop, handle, d, tol * 1.5) {
+                    self.set_picture_crop(id, Some(x), c)?;
+                }
+            }
+            Drag::CropPan { id, orig, crop, start } => {
+                let inv = orig.affine().inverse();
+                let mut d = inv * p - inv * start;
+                // Shift keeps the move horizontal or vertical, as for shapes.
+                if mods.shift {
+                    if d.x.abs() > d.y.abs() {
+                        d.y = 0.0;
+                    } else {
+                        d.x = 0.0;
+                    }
+                }
+                if let Some(c) = super::crop::pan(orig.w, orig.h, crop, d, tol * 1.5) {
+                    self.set_picture_crop(id, None, c)?;
+                }
+            }
             Drag::Marquee { start, .. } => {
                 self.tool.marquee = Some(Rect::from_points(start, p));
             }
@@ -315,6 +337,23 @@ impl Session {
             })?;
         }
         Ok(Value::Null)
+    }
+
+    /// Sets a picture's crop, and its box when `x` is given, during a crop drag (one undo step
+    /// for the whole drag).
+    fn set_picture_crop(&mut self, id: ShapeId, x: Option<Xfrm>, crop: [f64; 4]) -> Result<()> {
+        self.edit(|doc, sel| {
+            let list = crate::shapes_mut(doc, sel).ok_or_else(|| cmd::bad("picture.crop", "no slide"))?;
+            if let Some(sh) = deckcraft_model::find_shape_mut(list, id)
+                && let ShapeKind::Picture { fill } = &mut sh.kind
+            {
+                fill.crop = crop;
+                if let Some(x) = x {
+                    sh.xfrm = Some(x);
+                }
+            }
+            Ok(())
+        })
     }
 
     /// Moves a vertex during a drag (one undo step for the whole drag).

@@ -28,6 +28,10 @@ fn selection_handles(app: &SlideApp, st: &DocState, painter: &egui::Painter, xf:
             }
             continue;
         }
+        // Crop mode draws the picture's crop handles instead ([`crop_overlay`]).
+        if app.session.tool.cropping(st) == Some(sh.id) {
+            continue;
+        }
         let editing_this = editing.as_ref().is_some_and(|e| e.shape == *id && !e.notes);
         if app.session.tool.editing_points(st) == Some(sh.id) {
             // Edit Points: the outline's vertices are the handles.
@@ -98,6 +102,82 @@ fn selection_handles(app: &SlideApp, st: &DocState, painter: &egui::Painter, xf:
     }
 }
 
+/// How opaque the cropped-away part of the image is in crop mode. It is see-through rather than
+/// greyed, so it reads the same over a light or a dark slide and the slide shows through it.
+const CROP_GHOST_ALPHA: u8 = 110;
+
+/// Crop mode: the cropped-away part of the image, see-through, around the frame (the frame itself
+/// shows the cropped picture as rendered), the image's outline, and the crop handles: black bars at
+/// the frame's corners and edge middles, outlined in white so they show on any picture.
+fn crop_overlay(
+    textures: &mut crate::textures::Textures,
+    st: &DocState,
+    id: deckcraft_model::ShapeId,
+    ctx: &egui::Context,
+    painter: &egui::Painter,
+    xf: Xf,
+    t: &Tokens,
+) {
+    let Some(sh) = st.shape(id) else { return };
+    let deckcraft_model::ShapeKind::Picture { fill } = &sh.kind else { return };
+    let x = deckcraft_engine::cmd::xfrm_of(&st.doc, &st.selection, sh);
+    let a = x.affine();
+    let img = deckcraft_engine::tools::crop::image_rect(x.w, x.h, fill.crop);
+    let to_screen = |px: f64, py: f64| xf.to_screen(a * Point::new(px, py));
+    // The cropped-away bands: the image outside the frame, each piece a quad in the picture's
+    // own (possibly rotated, flipped) coordinates.
+    if let Some(tex) = st.doc.media(fill.media).and_then(|m| textures.crop_ghost(ctx, &m.data))
+        && img.width() > 1e-9
+        && img.height() > 1e-9
+    {
+        let frame = deckcraft_geom::Rect::new(0.0, 0.0, x.w, x.h);
+        let (fy0, fy1) = (frame.y0.clamp(img.y0, img.y1), frame.y1.clamp(img.y0, img.y1));
+        let pieces = [
+            (img.x0, img.y0, img.x1, fy0),
+            (img.x0, fy1, img.x1, img.y1),
+            (img.x0, fy0, frame.x0.clamp(img.x0, img.x1), fy1),
+            (frame.x1.clamp(img.x0, img.x1), fy0, img.x1, fy1),
+        ];
+        let mut mesh = egui::Mesh::with_texture(tex.id());
+        let tint = Color32::from_white_alpha(CROP_GHOST_ALPHA);
+        for (x0, y0, x1, y1) in pieces {
+            if x1 - x0 <= 1e-6 || y1 - y0 <= 1e-6 {
+                continue;
+            }
+            let uv = |px: f64, py: f64| pos2(((px - img.x0) / img.width()) as f32, ((py - img.y0) / img.height()) as f32);
+            let base = mesh.vertices.len() as u32;
+            for (px, py) in [(x0, y0), (x1, y0), (x1, y1), (x0, y1)] {
+                mesh.vertices.push(egui::epaint::Vertex { pos: to_screen(px, py), uv: uv(px, py), color: tint });
+            }
+            mesh.indices.extend([base, base + 1, base + 2, base, base + 2, base + 3]);
+        }
+        painter.add(egui::Shape::mesh(mesh));
+    }
+    // The whole image's outline, dashed, and the frame's.
+    let outline =
+        |x0: f64, y0: f64, x1: f64, y1: f64| [to_screen(x0, y0), to_screen(x1, y0), to_screen(x1, y1), to_screen(x0, y1), to_screen(x0, y0)];
+    painter.add(egui::Shape::dashed_line(&outline(img.x0, img.y0, img.x1, img.y1), Stroke::new(1.0, t.selection), 4.0, 3.0));
+    poly(painter, [to_screen(0.0, 0.0), to_screen(x.w, 0.0), to_screen(x.w, x.h), to_screen(0.0, x.h)], Stroke::new(1.0, t.selection));
+    // The crop handles. Along the picture's own axes on screen, so they turn and flip with it.
+    let o = to_screen(0.0, 0.0);
+    let ex = (to_screen(1.0, 0.0) - o).normalized();
+    let ey = (to_screen(0.0, 1.0) - o).normalized();
+    let (arm, half) = (11.0, 7.0);
+    let marks: [(f64, f64); 8] = [(0.0, 0.0), (0.5, 0.0), (1.0, 0.0), (1.0, 0.5), (1.0, 1.0), (0.5, 1.0), (0.0, 1.0), (0.0, 0.5)];
+    for (fx, fy) in marks {
+        let c = to_screen(fx * x.w, fy * x.h);
+        // Corner marks run inward along both edges; edge marks lie along their edge.
+        let inward = |f: f64| if f == 0.0 { 1.0 } else { -1.0 };
+        let pts = match (fx == 0.5, fy == 0.5) {
+            (true, _) => vec![c - ex * half, c + ex * half],
+            (_, true) => vec![c - ey * half, c + ey * half],
+            _ => vec![c + ex * arm * inward(fx), c, c + ey * arm * inward(fy)],
+        };
+        painter.add(egui::Shape::line(pts.clone(), Stroke::new(6.0, Color32::WHITE)));
+        painter.add(egui::Shape::line(pts, Stroke::new(4.0, Color32::BLACK)));
+    }
+}
+
 fn text_overlays(st: &DocState, ui: &Ui, painter: &egui::Painter, xf: Xf, t: &Tokens) {
     let editing = st.selection.text.clone();
     // Caret / text selection, in a shape or a table cell.
@@ -156,6 +236,9 @@ pub(super) fn overlays(app: &mut SlideApp, ui: &Ui, painter: &egui::Painter, xf:
         }
     }
     let Some(st) = app.session.active() else { return };
+    if let Some(id) = app.session.tool.cropping(st) {
+        crop_overlay(&mut app.textures, st, id, ui.ctx(), painter, xf, t);
+    }
     selection_handles(app, st, painter, xf, t);
     text_overlays(st, ui, painter, xf, t);
     // Smart guides, marquee, previews.

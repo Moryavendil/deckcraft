@@ -14,6 +14,34 @@ pub(super) fn crop(s: &mut Session, p: &Value) -> Result<Value> {
     })
 }
 
+/// Enter or leave crop mode (Picture Format › Crop) for one selected picture.
+pub(super) fn crop_mode(s: &mut Session, p: &Value) -> Result<Value> {
+    let on = bool_param(p, "on").unwrap_or_else(|| s.doc().ok().and_then(|st| s.tool.cropping(st)).is_none());
+    if !on {
+        s.tool.crop = None;
+        return Ok(json!({"cropping": Value::Null}));
+    }
+    let id = match crate::cmd::id_param(p, "id", "picture.cropMode")? {
+        Some(i) => i,
+        None => match s.doc()?.selection.shapes.as_slice() {
+            [one] => *one,
+            _ => return Err(bad("picture.cropMode", "select one picture")),
+        },
+    };
+    crate::tools::croppable(s.doc()?, id).map_err(|e| bad("picture.cropMode", e))?;
+    // Crop mode works on the picture alone, as the one selected shape.
+    if s.doc()?.selection.shapes.as_slice() != [id] || s.doc()?.selection.text.is_some() {
+        s.select(|_, sel| {
+            sel.shapes = vec![id];
+            sel.text = None;
+            sel.cells = None;
+        })?;
+    }
+    s.tool.edit_points = None;
+    s.tool.crop = Some(id);
+    Ok(json!({"cropping": id.0}))
+}
+
 pub(super) fn picture_adjust(s: &mut Session, p: &Value) -> Result<Value> {
     edit_shapes(s, p, "picture.adjust", |sh| {
         if let deckcraft_model::ShapeKind::Picture { fill } = &mut sh.kind {

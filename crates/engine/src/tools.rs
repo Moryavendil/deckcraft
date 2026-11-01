@@ -12,6 +12,9 @@ use crate::cmd::{self, xfrm_of};
 use crate::{HistoryEntry, Result, Session, TextSel};
 
 mod click;
+pub mod crop;
+#[cfg(test)]
+mod crop_tests;
 mod drag;
 mod geometry;
 mod hit;
@@ -136,6 +139,16 @@ pub enum Hit {
         id: ShapeId,
         row: usize,
     },
+    /// Crop handle 0..8 (NW, N, NE, E, SE, S, SW, W) of the picture in crop mode.
+    CropHandle {
+        id: ShapeId,
+        handle: u8,
+    },
+    /// The picture in crop mode, its frame or the cropped-away image around it: dragging moves
+    /// the image under the frame.
+    CropImage {
+        id: ShapeId,
+    },
 }
 
 #[derive(Clone, Debug)]
@@ -188,6 +201,22 @@ enum Drag {
         name: String,
         base: Vec<f64>,
         orig: Xfrm,
+    },
+    /// Crop mode: moving side(s) `handle` of the frame over the image. `orig` and `crop` are the
+    /// picture's box and crop at the press.
+    CropEdge {
+        id: ShapeId,
+        handle: u8,
+        orig: Xfrm,
+        crop: [f64; 4],
+        start: Point,
+    },
+    /// Crop mode: moving the image under the frame.
+    CropPan {
+        id: ShapeId,
+        orig: Xfrm,
+        crop: [f64; 4],
+        start: Point,
     },
     Marquee {
         start: Point,
@@ -284,6 +313,8 @@ pub struct ToolState {
     pub edit_segment_t: Option<f64>,
     /// The point type last chosen for a vertex (shape, path, index, type): handle drags follow it.
     pub vertex_kind: Option<(ShapeId, usize, usize, String)>,
+    /// The picture in crop mode (Picture Format › Crop): crop handles replace its box handles.
+    pub crop: Option<ShapeId>,
     /// Drawing guides are shown (View › Guides): they can be dragged and shapes snap to them.
     pub guides_visible: bool,
     /// The guide being dragged and where it is now (slide points); `None` once dropped.
@@ -309,10 +340,48 @@ impl ToolState {
         })
     }
 
+    /// The picture in crop mode, while it is still the one selected shape and can be cropped.
+    pub fn cropping(&self, st: &crate::DocState) -> Option<ShapeId> {
+        self.crop.filter(|id| st.selection.shapes.as_slice() == [*id] && st.selection.text.is_none() && croppable(st, *id).is_ok())
+    }
+
     /// A freeform path is being drawn (Enter/Escape/double-click finish it).
     pub fn drawing_freeform(&self) -> bool {
         matches!(self.drag, Some(Drag::Freeform { .. }))
     }
+}
+
+/// Whether `id` is a picture crop mode can work on: a picture on the slide itself (not in a group),
+/// unlocked, its image stretched over its box. The error says why not.
+pub(crate) fn croppable(st: &crate::DocState, id: ShapeId) -> std::result::Result<(), &'static str> {
+    use deckcraft_model::style::PictureMode;
+    let sh = st.shape(id).ok_or("no such shape")?;
+    let ShapeKind::Picture { fill } = &sh.kind else { return Err("only a picture can be cropped") };
+    if !st.shapes().iter().any(|t| t.id == id) {
+        return Err("a picture in a group can't be cropped here; ungroup it first");
+    }
+    if sh.locked {
+        return Err("the object is locked");
+    }
+    if sh.xfrm.is_none_or(|x| !(x.w > 0.0 && x.h > 0.0)) {
+        return Err("the picture has no size");
+    }
+    if !matches!(fill.mode, PictureMode::Stretch { fill_rect } if fill_rect == [0.0; 4]) {
+        return Err("a tiled or inset picture fill can't be cropped");
+    }
+    Ok(())
+}
+
+/// The crop handles of a picture in crop mode, in slide coordinates: the frame's corners and edge
+/// middles (NW, N, NE, E, SE, S, SW, W), and the whole image's corners (NW, NE, SE, SW).
+pub fn crop_handles(st: &crate::DocState, id: ShapeId) -> Option<([Point; 8], [Point; 4])> {
+    let sh = st.shape(id)?;
+    let ShapeKind::Picture { fill } = &sh.kind else { return None };
+    let x = xfrm_of(&st.doc, &st.selection, sh);
+    let img = crop::image_rect(x.w, x.h, fill.crop);
+    let a = x.affine();
+    let corners = [Point::new(img.x0, img.y0), Point::new(img.x1, img.y0), Point::new(img.x1, img.y1), Point::new(img.x0, img.y1)].map(|q| a * q);
+    Some((box_handles(&x).0, corners))
 }
 
 /// Handle positions in slide coordinates for a box (8 resize + rotate).

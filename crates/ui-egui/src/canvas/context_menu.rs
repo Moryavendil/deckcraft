@@ -232,6 +232,10 @@ fn shape_items(app: &mut SlideApp, ui: &mut egui::Ui) {
     }
     let picture =
         app.session.active().is_some_and(|d| d.selected_shapes().iter().any(|s| matches!(s.kind, deckcraft_model::ShapeKind::Picture { .. })));
+    if picture && ui.button("Crop").clicked() {
+        let _ = app.run("picture.cropMode", json!({"on": true}));
+        ui.close();
+    }
     if picture && ui.button("Change Picture…").clicked() {
         let _ = app.run("app.changePictureDialog", json!({}));
         ui.close();

@@ -32,9 +32,33 @@ impl Session {
                 return Some(Hit::Vertex { id, path, index });
             }
         }
+        // In crop mode the picture's crop handles come first, then the picture and the
+        // cropped-away image around it; its box handles are gone.
+        let cropping = self.tool.cropping(st);
+        if let Some(id) = cropping
+            && let Some((handles, corners)) = super::crop_handles(st, id)
+        {
+            for (i, q) in handles.iter().enumerate() {
+                if (*q - p).hypot() <= tol * 2.0 {
+                    return Some(Hit::CropHandle { id, handle: i as u8 });
+                }
+            }
+            if let Some(sh) = st.shape(id) {
+                let x = xfrm_of(&st.doc, &st.selection, sh);
+                let local = x.affine().inverse() * p;
+                let inv = x.affine().inverse();
+                let img = Rect::from_points(inv * corners[0], inv * corners[2]);
+                if Rect::new(0.0, 0.0, x.w, x.h).contains(local) || img.contains(local) {
+                    return Some(Hit::CropImage { id });
+                }
+            }
+        }
         // Handles of selected shapes first.
         if st.selection.text.is_none() || st.selection.shapes.len() == 1 {
             for id in st.selection.shapes.iter().rev() {
+                if cropping == Some(*id) {
+                    continue;
+                }
                 let Some(sh) = st.shape(*id) else { continue };
                 // A locked object shows no live handles: it can't be sized, rotated or reshaped.
                 if sh.locked {
@@ -297,6 +321,28 @@ impl Session {
             self.tool.edit_points = None;
             self.tool.edit_vertex = None;
         }
+        // Crop mode: drag a crop handle or the image; a press anywhere else ends crop mode and
+        // does what it would have done (select another shape, start a marquee...).
+        if let Some(cid) = self.doc().ok().and_then(|st| self.tool.cropping(st)) {
+            let st = self.doc()?;
+            let at_press = st.shape(cid).and_then(|sh| match &sh.kind {
+                ShapeKind::Picture { fill } => Some((xfrm_of(&st.doc, &st.selection, sh), fill.crop)),
+                _ => None,
+            });
+            match (hit.clone(), at_press) {
+                (Some(Hit::CropHandle { id, handle }), Some((orig, crop))) => {
+                    self.begin("Crop");
+                    self.tool.drag = Some(Drag::CropEdge { id, handle, orig, crop, start: p });
+                    return Ok(json!({"hit": serde_json::to_value(&hit).unwrap_or_default()}));
+                }
+                (Some(Hit::CropImage { id }), Some((orig, crop))) => {
+                    self.begin("Crop");
+                    self.tool.drag = Some(Drag::CropPan { id, orig, crop, start: p });
+                    return Ok(json!({"hit": serde_json::to_value(&hit).unwrap_or_default()}));
+                }
+                _ => self.tool.crop = None,
+            }
+        }
         let st = self.doc()?;
         match hit {
             Some(Hit::TableColumn { id, col }) => self.begin_table_border(id, true, col, p)?,
@@ -319,8 +365,8 @@ impl Session {
                 self.begin("Rotate");
                 self.tool.drag = Some(Drag::Rotate { ids, center, start, origs });
             }
-            // Only reached outside Edit Points (handled above).
-            Some(Hit::Vertex { .. } | Hit::Handle { .. }) => {}
+            // Only reached outside Edit Points and crop mode (handled above).
+            Some(Hit::Vertex { .. } | Hit::Handle { .. } | Hit::CropHandle { .. } | Hit::CropImage { .. }) => {}
             Some(Hit::Adjust { id, index }) => {
                 let orig = st.shape(id).map(|s| xfrm_of(&st.doc, &st.selection, s)).unwrap_or_default();
                 self.begin("Adjust Shape");

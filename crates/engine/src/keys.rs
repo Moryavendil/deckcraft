@@ -60,6 +60,11 @@ impl Session {
         if self.tool.drawing_freeform() && matches!(k, "enter" | "return" | "escape") {
             return self.finish_freeform(false);
         }
+        if self.active().is_some_and(|st| self.tool.cropping(st).is_some()) && matches!(k, "enter" | "return" | "escape" | "esc") {
+            // Ends crop mode keeping the crop, as clicking Crop again does.
+            self.tool.crop = None;
+            return Ok(json!({"handled": true, "command": "picture.cropMode"}));
+        }
         if self.tool.edit_points.is_some() && matches!(k, "enter" | "return" | "escape") {
             self.tool.edit_points = None;
             self.tool.edit_vertex = None;
